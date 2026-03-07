@@ -118,7 +118,8 @@ class AbstractPlugin(ABC):
             self._session_state.pop(session_id, None)
 
     def model_mapping(self) -> dict[str, str] | None:
-        raise NotImplementedError("model_mapping is not implemented")
+        """子类可覆盖；BaseSitePlugin 会从 config_section 的 model_mapping 读取。"""
+        return None
 
     def on_http_error(self, message: str, headers: dict[str, str] | None) -> int | None:
         return None
@@ -163,6 +164,14 @@ class BaseSitePlugin(AbstractPlugin):
             if base:
                 return str(base).strip()
         return self.site.api_base
+
+    def model_mapping(self) -> dict[str, str] | None:
+        """从 config 的 config_section.model_mapping 读取；未配置时返回 None。"""
+        if self.site.config_section:
+            m = get(self.site.config_section, "model_mapping")
+            if isinstance(m, dict) and m:
+                return {str(k): str(v) for k, v in m.items()}
+        return None
 
     # ---- 基类全自动实现，子类无需碰 ----
 

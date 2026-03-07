@@ -45,5 +45,9 @@ claude:
   #   api_base: "http://127.0.0.1:8002/mock"
   api_base: ''
 
+  # OpenAI 兼容模型名 -> 实际模型 ID，用于 /v1/models 列表及请求时的模型解析
+  model_mapping:
+    s4: claude-sonnet-4-5-20250929
+
 mock:
   port: 8002

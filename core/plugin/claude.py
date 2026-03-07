@@ -155,11 +155,8 @@ class ClaudePlugin(BaseSitePlugin):
         config_section="claude",
     )
 
-    def model_mapping(self) -> dict[str, str] | None:
-        return {"s4": "claude-sonnet-4-5-20250929"}
-
     # ---- 5 个必须实现的 hook ----
-
+    # 获取 workspace / org 信息
     async def fetch_workspace(self, context: BrowserContext) -> dict[str, Any] | None:
         resp = await context.request.get(f"{self.api_base}/account", timeout=15000)
         if resp.status != 200:
@@ -200,6 +197,7 @@ class ClaudePlugin(BaseSitePlugin):
         org_uuid = state["workspace"]["org_uuid"]
         return f"{self.api_base}/organizations/{org_uuid}/chat_conversations/{session_id}/completion"
 
+    # 构建请求体
     def build_completion_body(
         self,
         message: str,
@@ -215,15 +213,18 @@ class ClaudePlugin(BaseSitePlugin):
             body["parent_message_uuid"] = parent
         return body
 
+    # 解析 SSE 事件
     def parse_sse_event(
         self,
         payload: str,
     ) -> tuple[list[str], str | None, str | None]:
         return _parse_one_sse_event(payload)
 
+    # 判断是否是终止事件
     def is_terminal_sse_event(self, payload: str) -> bool:
         return _is_terminal_sse_event(payload)
 
+    # 处理错误
     def on_http_error(
         self,
         message: str,
