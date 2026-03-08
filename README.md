@@ -79,7 +79,7 @@ docker compose up -d --build
 mkdir web2api
 cd web2api
 # 拉取 config.yaml（可选，不拉取则首次启动时容器会在 ./docker-data 下自动生成默认配置）
-mkdir -p docker-data && curl -sL -o docker-data/config.yaml https://raw.githubusercontent.com/caiwuu/web2api/main/config.yaml
+mkdir -p docker-data && curl -sL -o docker-data/config.yaml https://raw.githubusercontent.com/caiwuu/web2api/master/config.yaml
 # 修改 config.yaml
 docker run -d \
   --name web2api \
