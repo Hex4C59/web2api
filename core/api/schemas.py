@@ -10,6 +10,13 @@ from core.api.conv_parser import strip_session_id_suffix
 class OpenAIContentPart(BaseModel):
     type: str
     text: str | None = None
+    image_url: dict[str, Any] | str | None = None
+
+
+class InputAttachment(BaseModel):
+    filename: str
+    mime_type: str
+    data: bytes
 
 
 class OpenAIMessage(BaseModel):
@@ -43,6 +50,8 @@ class OpenAIChatRequest(BaseModel):
         default=None,
         description="是否允许单次响应中并行多个 tool_call，false 时仅 0 或 1 个",
     )
+    resume_session_id: str | None = Field(default=None, exclude=True)
+    attachment_files: list[InputAttachment] = Field(default_factory=list, exclude=True)
 
 
 def _norm_content(c: str | list[OpenAIContentPart] | None) -> str:
@@ -54,7 +63,11 @@ def _norm_content(c: str | list[OpenAIContentPart] | None) -> str:
     if not isinstance(c, list):
         return ""
     return strip_session_id_suffix(
-        " ".join(p.text or "" for p in c if isinstance(p, OpenAIContentPart) and p.text)
+        " ".join(
+            p.text or ""
+            for p in c
+            if isinstance(p, OpenAIContentPart) and p.type == "text" and p.text
+        )
     )
 
 

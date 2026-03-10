@@ -619,7 +619,7 @@ class ChatHandler:
             raise ValueError(f"未注册的 type: {type_name}")
 
         raw_messages = _request_messages_as_dicts(req)
-        conv_uuid = parse_conv_uuid_from_messages(raw_messages)
+        conv_uuid = req.resume_session_id or parse_conv_uuid_from_messages(raw_messages)
         logger.info("[chat] type=%s parsed conv_uuid=%s", type_name, conv_uuid)
 
         has_tools = bool(req.tools)
@@ -655,6 +655,8 @@ class ChatHandler:
                     react_prompt_prefix=react_prompt_prefix,
                     full_history=target.full_history,
                 )
+                if not content.strip() and req.attachment_files:
+                    content = "Please analyze the attached image."
                 if not content.strip():
                     raise ValueError("messages 中需至少有一条带 content 的 user 消息")
 
@@ -721,6 +723,7 @@ class ChatHandler:
                         session_id,
                         content,
                         request_id=request_id,
+                        attachments=req.attachment_files,
                     ),
                 )
                 async for chunk in stream:

@@ -1,6 +1,6 @@
 # Web2API
 
-把“网页上的 AI 服务”包装成 **OpenAI 兼容接口**。
+把“网页上的 AI 服务”包装成 **OpenAI / Anthropic 兼容接口**。
 
 如果你已经有：
 
@@ -10,7 +10,56 @@
 
 那这个项目就是干这个的。
 
-当前仓库默认内置的是 `claude` 插件，也就是说你可以像调 OpenAI 一样去调 Claude 网页端。
+当前仓库默认内置的是 `claude` 插件，也就是说你现在可以把 Claude 网页端同时暴露成：
+
+- OpenAI 协议
+- Anthropic 协议
+
+## 当前协议矩阵
+
+当前仓库真正可用的组合是：
+
+- `POST /openai/claude/v1/chat/completions`
+- `GET /openai/claude/v1/models`
+- `POST /anthropic/claude/v1/messages`
+
+兼容保留的旧路径：
+
+- `POST /claude/v1/chat/completions`
+- `GET /claude/v1/models`
+
+说明：
+
+- 第一段 `openai / anthropic` 是客户端协议
+- 第二段 `claude` 是 provider 插件
+- 路由层已经按协议和 provider 解耦
+- 当前内置 provider 仍只有 `claude`
+
+## 图片输入支持
+
+当前已经支持 `OpenAI -> claude` 和 `Anthropic -> claude` 的图片输入。
+
+支持格式：
+
+- OpenAI `content[].type = "image_url"`
+- OpenAI `image_url.url = "data:image/...;base64,..."`
+- OpenAI `image_url.url = "http://..."` 或 `https://...`
+- Anthropic `content[].type = "image"` 且 `source.type = "base64"`
+
+限制：
+
+- 支持 `image/png`
+- 支持 `image/jpeg`
+- 支持 `image/webp`
+- 支持 `image/gif`
+- 单张最大 `10MB`
+- Claude 单次最多 `5` 张图
+
+行为说明：
+
+- 远程 `image_url` 会由服务端先下载，再上传到 Claude
+- 图片最终会走 Claude 网页真实上传接口
+- 当前只支持图片输入，不支持图片输出
 
 ## 这个项目到底做了什么
 
@@ -21,10 +70,12 @@
 3. 帮你维持网页会话
 4. 对外暴露一个 OpenAI 风格的 HTTP API
 
-你调用的是：
+你调用的可以是：
 
 ```text
 POST /claude/v1/chat/completions
+POST /openai/claude/v1/chat/completions
+POST /anthropic/claude/v1/messages
 ```
 
 项目内部实际做的是：
@@ -403,7 +454,7 @@ curl -s "http://127.0.0.1:9000/claude/v1/chat/completions" \
 ### 流式
 
 ```bash
-curl -N "http://127.0.0.1:9000/claude/v1/chat/completions" \
+curl -N "http://127.0.0.1:9000/openai/claude/v1/chat/completions" \
   -H "Authorization: Bearer your-secret-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -411,6 +462,60 @@ curl -N "http://127.0.0.1:9000/claude/v1/chat/completions" \
     "stream": true,
     "messages": [
       {"role":"user","content":"用三点总结今天的计划。"}
+    ]
+  }'
+```
+
+### OpenAI 图片输入
+
+```bash
+curl -s "http://127.0.0.1:9000/openai/claude/v1/chat/completions" \
+  -H "Authorization: Bearer your-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "s4",
+    "stream": false,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "text", "text": "请描述这张图片"},
+          {
+            "type": "image_url",
+            "image_url": {
+              "url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA..."
+            }
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+### Anthropic 图片输入
+
+```bash
+curl -s "http://127.0.0.1:9000/anthropic/claude/v1/messages" \
+  -H "Authorization: Bearer your-secret-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "claude-sonnet-4-5-20250929",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {"type": "text", "text": "请描述这张图片"},
+          {
+            "type": "image",
+            "source": {
+              "type": "base64",
+              "media_type": "image/png",
+              "data": "iVBORw0KGgoAAAANSUhEUgAA..."
+            }
+          }
+        ]
+      }
     ]
   }'
 ```
