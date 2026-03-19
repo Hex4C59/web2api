@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 
 from core.api.chat_handler import ChatHandler
@@ -51,15 +52,7 @@ class CanonicalChatService:
                 )
             )
         for msg in req.messages:
-            messages.append(
-                OpenAIMessage(
-                    role=msg.role,
-                    content=self._to_openai_content(msg.content),
-                    tool_call_id=msg.content[0].tool_use_id
-                    if msg.role == "tool" and msg.content
-                    else None,
-                )
-            )
+            messages.append(self._to_openai_message(msg))
 
         openai_tools = [
             {
@@ -80,11 +73,54 @@ class CanonicalChatService:
             stream=req.stream,
             tools=openai_tools or None,
             tool_choice=req.tool_choice,
+            parallel_tool_calls=req.parallel_tool_calls,
             resume_session_id=req.resume_session_id,
             # 由 ChatHandler 根据是否 full_history 选择实际赋值给 attachment_files
             attachment_files=[],
             attachment_files_last_user=last_user_attachments,
             attachment_files_all_users=all_attachments,
+        )
+
+    @classmethod
+    def _to_openai_message(cls, msg: CanonicalMessage) -> OpenAIMessage:
+        if msg.role == "assistant":
+            text_blocks = [block for block in msg.content if block.type != "tool_use"]
+            tool_use_blocks = [block for block in msg.content if block.type == "tool_use"]
+            tool_calls = [
+                {
+                    "id": block.id or "",
+                    "type": "function",
+                    "function": {
+                        "name": block.name or "",
+                        "arguments": json.dumps(block.input or {}, ensure_ascii=False),
+                    },
+                }
+                for block in tool_use_blocks
+            ]
+            return OpenAIMessage(
+                role=msg.role,
+                content=cls._to_openai_content(text_blocks),
+                tool_calls=tool_calls or None,
+            )
+
+        if msg.role == "tool":
+            tool_call_id = next(
+                (
+                    block.tool_use_id
+                    for block in msg.content
+                    if block.type == "tool_result" and block.tool_use_id
+                ),
+                None,
+            )
+            return OpenAIMessage(
+                role=msg.role,
+                content=cls._to_openai_content(msg.content),
+                tool_call_id=tool_call_id,
+            )
+
+        return OpenAIMessage(
+            role=msg.role,
+            content=cls._to_openai_content(msg.content),
         )
 
     async def _resolve_attachments(

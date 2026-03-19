@@ -4,104 +4,33 @@ OpenAI 协议路由。
 支持：
 - /openai/{provider}/v1/chat/completions
 - /openai/{provider}/v1/models
-- 旧路径 /{provider}/v1/...（等价于 OpenAI 协议）
 """
 
-import json
-import time
-from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
-from core.api.auth import require_api_key
+from fastapi import APIRouter, Depends, Request
+from core.api.protocol_models import (
+    format_openai_models_response,
+    list_provider_model_ids,
+)
+from core.api.protocol_routes import (
+    create_protocol_router,
+    format_openai_stream_error,
+    handle_protocol_chat_request,
+)
 from core.api.chat_handler import ChatHandler
 from core.api.deps import get_chat_handler
-from core.plugin.base import PluginRegistry
 from core.protocol.openai import OpenAIProtocolAdapter
-from core.protocol.service import CanonicalChatService
 
 
 def create_openai_router() -> APIRouter:
     """创建 OpenAI 协议路由。"""
-    router = APIRouter(dependencies=[Depends(require_api_key)])
+    router = create_protocol_router()
     adapter = OpenAIProtocolAdapter()
-
-    def _list_models(provider: str) -> dict[str, Any]:
-        plugin = PluginRegistry.get(provider)
-        try:
-            mapping = plugin.model_mapping() if plugin is not None else None
-        except Exception:
-            mapping = None
-
-        if isinstance(mapping, dict) and mapping:
-            model_ids = list(mapping.keys())
-        else:
-            raise HTTPException(
-                status_code=500, detail="model_mapping is not implemented"
-            )
-
-        now = int(time.time())
-        return {
-            "object": "list",
-            "data": [
-                {
-                    "id": mid,
-                    "object": "model",
-                    "created": now,
-                    "owned_by": provider,
-                }
-                for mid in model_ids
-            ],
-        }
 
     @router.get("/openai/{provider}/v1/models")
     def list_models(provider: str) -> dict[str, Any]:
-        return _list_models(provider)
-
-    async def _chat_completions(
-        provider: str,
-        request: Request,
-        handler: ChatHandler,
-    ) -> Any:
-        raw_body = await request.json()
-        try:
-            canonical_req = adapter.parse_request(provider, raw_body)
-        except Exception as exc:
-            status, payload = adapter.render_error(exc)
-            return JSONResponse(status_code=status, content=payload)
-
-        service = CanonicalChatService(handler)
-        if canonical_req.stream:
-
-            async def sse_stream() -> AsyncIterator[str]:
-                try:
-                    async for event in adapter.render_stream(
-                        canonical_req,
-                        service.stream_raw(canonical_req),
-                    ):
-                        yield event
-                except Exception as exc:
-                    status, payload = adapter.render_error(exc)
-                    del status
-                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
-
-            return StreamingResponse(
-                sse_stream(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive",
-                    "X-Accel-Buffering": "no",
-                },
-            )
-
-        try:
-            raw_events = await service.collect_raw(canonical_req)
-            return adapter.render_non_stream(canonical_req, raw_events)
-        except Exception as exc:
-            status, payload = adapter.render_error(exc)
-            return JSONResponse(status_code=status, content=payload)
+        return format_openai_models_response(provider, list_provider_model_ids(provider))
 
     @router.post("/openai/{provider}/v1/chat/completions")
     async def chat_completions(
@@ -109,6 +38,12 @@ def create_openai_router() -> APIRouter:
         request: Request,
         handler: ChatHandler = Depends(get_chat_handler),
     ) -> Any:
-        return await _chat_completions(provider, request, handler)
+        return await handle_protocol_chat_request(
+            adapter=adapter,
+            provider=provider,
+            request=request,
+            handler=handler,
+            stream_error_formatter=format_openai_stream_error,
+        )
 
     return router

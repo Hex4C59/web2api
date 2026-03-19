@@ -36,47 +36,52 @@
 ### 3.1 合法标签
 
 - `<think>...</think>`
-- `<tool_call>...</tool_call>`
+- `<tool_calls>...</tool_calls>`
 - `<final_answer>...</final_answer>`
 
 ### 3.2 单轮响应约束
 
-每次模型响应最多包含两块：
+每次模型响应的控制语义由第一个终结块决定：
 
-1. 一个可选的 `<think>`
-2. 一个必选的终结块：`<tool_call>` 或 `<final_answer>`
+1. 任意数量的 `<think>`
+2. 第一个 `<tool_calls>`、`<tool_call>` 或 `<final_answer>` 作为本轮终结块
 
-不允许标签外文本。
+终结块之后的其余内容会被忽略。
 
 ### 3.3 形式文法
 
 ```ebnf
-response        := ws? think_block? ws? terminal_block ws?
+response        := ws? think_block* ws? terminal_block trailing*
 think_block     := "<think>" think_text "</think>"
-terminal_block  := tool_call_block | final_answer_block
+terminal_block  := tool_calls_block | tool_call_block | final_answer_block
+tool_calls_block := "<tool_calls>" json_array "</tool_calls>"
 tool_call_block := "<tool_call>" json_object "</tool_call>"
 final_answer_block := "<final_answer>" answer_text "</final_answer>"
+trailing        := any_text
 ws              := (" " | "\n" | "\t" | "\r")*
 ```
 
-### 3.4 `tool_call` 内容格式
+### 3.4 `tool_calls` 内容格式
 
-`<tool_call>` 内必须是严格 JSON 对象，格式固定为：
+`<tool_calls>` 内必须是严格 JSON 数组，数组中的每一项格式固定为：
 
 ```json
-{
-  "name": "Read",
-  "arguments": {
-    "path": "/path/to/file.py"
+[
+  {
+    "name": "Read",
+    "arguments": {
+      "path": "/path/to/file.py"
+    }
   }
-}
+]
 ```
 
 约束：
 
-- `name` 必填，类型为字符串
-- `arguments` 必填，类型优先要求为对象
-- 初版不支持一个响应中多个 `<tool_call>`
+- 数组不能为空
+- 每个元素的 `name` 必填，类型为字符串
+- 每个元素的 `arguments` 必填，类型优先要求为对象
+- 为兼容旧站点，服务端仍接受单个 `<tool_call>{...}</tool_call>`，但标准输出统一推荐 `<tool_calls>[...]</tool_calls>`
 - 标签名大小写敏感，统一使用小写
 
 ### 3.5 示例
@@ -85,7 +90,7 @@ ws              := (" " | "\n" | "\t" | "\r")*
 
 ```xml
 <think>我需要先读取文件内容</think>
-<tool_call>{"name":"Read","arguments":{"path":"/path/to/file.py"}}</tool_call>
+<tool_calls>[{"name":"Read","arguments":{"path":"/path/to/file.py"}}]</tool_calls>
 ```
 
 最终回答：
@@ -108,19 +113,19 @@ ws              := (" " | "\n" | "\t" | "\r")*
 ### 4.1 解析原则
 
 - `<think>` 仅承载展示语义，不参与工具控制判断
-- `<tool_call>` 与 `<final_answer>` 互斥；同一响应只允许一个
+- `<tool_calls>`、`<tool_call>` 与 `<final_answer>` 都可作为终结块；以第一个完整终结块为准
 - 服务端只在读到闭合标签后确认块结束
-- `tool_call` 的 JSON 在闭合标签前可先视为原始文本缓存，闭合后再做 JSON 解析
+- `tool_calls` / `tool_call` 的 JSON 在闭合标签前可先视为原始文本缓存，闭合后再做 JSON 解析
+- 多个 `<think>` 会按出现顺序拼接
 
 ### 4.2 非法输出处理
 
 以下情况视为协议错误：
 
 - 标签外出现非空文本
-- 同时出现 `<tool_call>` 与 `<final_answer>`
-- `<tool_call>` 内不是合法 JSON
+- `<tool_calls>` / `<tool_call>` 内不是合法 JSON
 - JSON 缺少 `name` 或 `arguments`
-- 出现未定义标签
+- 在第一个终结块之前出现标签外非空文本
 
 建议错误策略：
 
@@ -146,7 +151,8 @@ ws              := (" " | "\n" | "\t" | "\r")*
 ```json
 [
   { "type": "thinking", "text": "我需要先读取文件内容" },
-  { "type": "tool_use", "name": "Read", "input": { "path": "/path/to/file.py" } }
+  { "type": "tool_use", "name": "Read", "input": { "path": "/path/to/file.py" } },
+  { "type": "tool_use", "name": "Read", "input": { "path": "/path/to/other.py" } }
 ]
 ```
 
@@ -162,7 +168,7 @@ ws              := (" " | "\n" | "\t" | "\r")*
 说明：
 
 - `thinking`：来自 `<think>`
-- `tool_use`：来自 `<tool_call>`
+- `tool_use`：来自 `<tool_calls>` 或 `<tool_call>`
 - `text`：来自 `<final_answer>`
 
 ### 5.2 流式事件
@@ -298,11 +304,11 @@ ws              := (" " | "\n" | "\t" | "\r")*
 
 建议系统 prompt 明确要求：
 
-- 只允许输出 `<think>`、`<tool_call>`、`<final_answer>` 三种标签
+- 只允许输出 `<think>`、`<tool_calls>`、`<final_answer>` 三种标签
 - 每次响应只能有一个终结块
 - 不允许标签外文本
-- `<tool_call>` 内必须输出严格 JSON
-- 完成 `</tool_call>` 或 `</final_answer>` 后立即停止
+- `<tool_calls>` 内必须输出严格 JSON 数组
+- 完成 `</tool_calls>` 或 `</final_answer>` 后立即停止
 - 不要输出 `Observation`
 
 推荐模板：
@@ -312,15 +318,16 @@ You are a tool-capable assistant.
 
 You must respond using only the following XML-like tags:
 - <think>...</think>
-- <tool_call>{"name":"ToolName","arguments":{...}}</tool_call>
+- <tool_calls>[{"name":"ToolName","arguments":{...}}]</tool_calls>
 - <final_answer>...</final_answer>
 
 Rules:
-- You may output at most one <think> block.
-- You must then output exactly one terminal block: either <tool_call> or <final_answer>.
+- You may output one or more <think> blocks.
+- You must then output exactly one terminal block: either <tool_calls> or <final_answer>.
 - Do not output any text outside these tags.
-- In <tool_call>, the content must be valid JSON with keys "name" and "arguments".
-- After </tool_call> or </final_answer>, stop immediately.
+- In <tool_calls>, the content must be a valid JSON array. Each item must have keys "name" and "arguments".
+- If you need only one tool, still use an array with one item.
+- After </tool_calls> or </final_answer>, stop immediately.
 - Never output <observation>; the system will provide tool results in the next turn.
 ```
 
@@ -328,30 +335,22 @@ Rules:
 
 ## 8. 与当前实现的关系
 
-当前实现主要基于：
+当前实现已经切换为：
 
-- `core/api/react.py`：行式 ReAct prompt 与解析
-- `core/api/react_stream_parser.py`：字符级 marker 状态机
-- `core/protocol/openai.py`：将行式 ReAct 转为 OpenAI tool_calls
-- `core/protocol/anthropic.py`：将行式 ReAct 转为 Anthropic blocks
+- `core/api/tagged_output.py`：标签协议 prompt 与非流式解析
+- `core/api/tagged_stream_parser.py`：字符级标签流式解析器
+- `core/protocol/openai.py`：消费 tagged events 并输出 OpenAI tool_calls/content
+- `core/protocol/anthropic.py`：消费 tagged events 并输出 Anthropic blocks/SSE
 
-建议迁移方向：
-
-1. 新增标签协议解析模块，例如 `core/api/tagged_output.py`
-2. 新增流式标签解析器，例如 `core/api/tagged_stream_parser.py`
-3. 让协议层消费**协议无关事件**，而不是直接依赖 ReAct 文本解析
-4. 保留现有行式 ReAct 作为兼容 fallback，不作为主路径
+旧的行式 ReAct 已下线，不再保留兼容 fallback。
 
 ---
 
 ## 9. 推荐落地顺序
 
-1. 先定义新的 prompt，让站点模型改输出标签 DSL
-2. 实现非流式解析：`<think>` + `<tool_call>` / `<final_answer>`
-3. 实现流式标签解析器
-4. OpenAI renderer 改为消费中间事件
-5. Anthropic renderer 改为消费中间事件
-6. 最后再下线旧的行式 ReAct 解析器
+1. 使用新的 prompt，让站点模型输出标签 DSL
+2. 解析为协议无关中间事件
+3. 由 OpenAI / Anthropic renderer 负责各自协议输出
 
 ---
 
@@ -361,7 +360,7 @@ Rules:
 
 ```xml
 <think>...</think>
-<tool_call>{"name":"...","arguments":{...}}</tool_call>
+<tool_calls>[{"name":"...","arguments":{...}}]</tool_calls>
 ```
 
 或：

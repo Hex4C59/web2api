@@ -52,6 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     no_sandbox = get_bool("browser", "no_sandbox", False)
     disable_gpu = get_bool("browser", "disable_gpu", False)
     disable_gpu_sandbox = get_bool("browser", "disable_gpu_sandbox", False)
+    download_dir = (get("browser", "download_dir") or "").strip() or None
     cdp_wait_max_attempts = int(get("browser", "cdp_wait_max_attempts") or 90)
     cdp_wait_interval_seconds = float(
         get("browser", "cdp_wait_interval_seconds") or 2.0
@@ -79,6 +80,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         cdp_wait_max_attempts=cdp_wait_max_attempts,
         cdp_wait_interval_seconds=cdp_wait_interval_seconds,
         cdp_wait_connect_timeout_seconds=cdp_wait_connect_timeout_seconds,
+        download_dir=download_dir,
     )
     app.state.chat_handler = ChatHandler(
         pool=pool,

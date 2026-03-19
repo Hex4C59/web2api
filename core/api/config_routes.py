@@ -30,6 +30,11 @@ from core.plugin.base import PluginRegistry
 logger = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
 
 
 class AdminLoginRequest(BaseModel):
@@ -169,7 +174,7 @@ def create_config_router() -> APIRouter:
         path = STATIC_DIR / "login.html"
         if not path.is_file():
             raise HTTPException(status_code=404, detail="登录页未就绪")
-        return FileResponse(path)
+        return FileResponse(path, headers=NO_CACHE_HEADERS)
 
     @router.post("/api/admin/login", response_model=None)
     def admin_login(payload: AdminLoginRequest, request: Request) -> Response:
@@ -219,6 +224,6 @@ def create_config_router() -> APIRouter:
         path = STATIC_DIR / "config.html"
         if not path.is_file():
             raise HTTPException(status_code=404, detail="配置页未就绪")
-        return FileResponse(path)
+        return FileResponse(path, headers=NO_CACHE_HEADERS)
 
     return router
